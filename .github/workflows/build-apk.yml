@@ -3,6 +3,8 @@ name: Build AutoTapper APK
 on:
   push:
     branches: [autotapper-apk-build]
+  pull_request:
+    branches: [master]
   workflow_dispatch:
 
 jobs:
