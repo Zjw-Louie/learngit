@@ -30,6 +30,7 @@ public class AutoTapService extends AccessibilityService {
     private LinearLayout panel;
     private WindowManager.LayoutParams rp,pp;
     private TextView status;
+    private Button runButton;
     private boolean running=false, randomMode=true;
     private int idx=3;
 
@@ -58,14 +59,24 @@ public class AutoTapService extends AccessibilityService {
         Button faster=btn("更快"), slower=btn("更慢"), mode=btn("随机/中心");
         r1.addView(faster); r1.addView(slower); r1.addView(mode); panel.addView(r1);
         LinearLayout r2=new LinearLayout(this);
-        Button toggle=btn("区域"), start=btn("开始"), stop=btn("停止");
-        r2.addView(toggle); r2.addView(start); r2.addView(stop); panel.addView(r2);
+        Button regionBtn=btn("区域"), interact=btn("暂停交互"); runButton=btn("开始");
+        r2.addView(regionBtn); r2.addView(interact); r2.addView(runButton); panel.addView(r2);
 
         faster.setOnClickListener(v->{ if(idx>0)idx--; update(); });
         slower.setOnClickListener(v->{ if(idx<INTERVALS.length-1)idx++; update(); });
         mode.setOnClickListener(v->{ randomMode=!randomMode; update(); });
-        toggle.setOnClickListener(v->{ if(!running)region.setVisibility(region.getVisibility()==View.VISIBLE?View.GONE:View.VISIBLE); });
-        start.setOnClickListener(v->start()); stop.setOnClickListener(v->stop());
+        regionBtn.setOnClickListener(v->{ if(!running)region.setVisibility(region.getVisibility()==View.VISIBLE?View.GONE:View.VISIBLE); });
+        interact.setOnTouchListener((v,e)->{
+            if(e.getActionMasked()==MotionEvent.ACTION_DOWN){ stop(); return true; }
+            return true;
+        });
+        runButton.setOnTouchListener((v,e)->{
+            if(e.getActionMasked()==MotionEvent.ACTION_DOWN){
+                if(running) stop(); else start();
+                return true;
+            }
+            return true;
+        });
 
         pp=new WindowManager.LayoutParams(-2,-2,WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN|WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,PixelFormat.TRANSLUCENT);
@@ -73,14 +84,21 @@ public class AutoTapService extends AccessibilityService {
     }
 
     private Button btn(String s){ Button b=new Button(this); b.setText(s); b.setTextSize(12); b.setMinWidth(0); b.setMinimumWidth(0); b.setPadding(dp(8),0,dp(8),0); return b; }
-    private void start(){ if(running||rp==null)return; running=true; region.setVisibility(View.GONE); update(); dispatchBatch(); }
-    private void stop(){ running=false; if(region!=null)region.setVisibility(View.VISIBLE); update(); }
+    private void start(){ if(running||rp==null)return; running=true; setRegionTouchable(false); region.setVisibility(View.VISIBLE); update(); dispatchBatch(); }
+    private void stop(){ running=false; setRegionTouchable(true); if(region!=null)region.setVisibility(View.VISIBLE); update(); }
+
+    private void setRegionTouchable(boolean touchable){
+        if(rp==null||region==null||wm==null)return;
+        if(touchable) rp.flags &= ~WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
+        else rp.flags |= WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
+        try{ wm.updateViewLayout(region,rp); }catch(Exception ignored){}
+    }
 
     private void dispatchBatch(){
         if(!running)return;
         long interval=INTERVALS[idx];
         int max=GestureDescription.getMaxStrokeCount();
-        int count=Math.max(1,Math.min(max,(int)(240/Math.max(1,interval))+1));
+        int count=Math.max(1,Math.min(max,(int)(180/Math.max(1,interval))+1));
         GestureDescription.Builder b=new GestureDescription.Builder();
         long maxDur=GestureDescription.getMaxGestureDuration(); int added=0;
         for(int i=0;i<count;i++){
@@ -103,7 +121,10 @@ public class AutoTapService extends AccessibilityService {
         return new float[]{l+rnd.nextFloat()*Math.max(1,r-l),t+rnd.nextFloat()*Math.max(1,b-t)};
     }
 
-    private void update(){ if(status!=null)status.setText((running?"运行中":"已停止")+" | "+INTERVALS[idx]+" ms | "+(randomMode?"随机区域":"中心点")); }
+    private void update(){
+        if(status!=null)status.setText((running?"运行中（点暂停交互后可正常操作）":"已暂停，可正常操作屏幕")+" | "+INTERVALS[idx]+" ms | "+(randomMode?"随机区域":"中心点"));
+        if(runButton!=null)runButton.setText(running?"停止":"开始");
+    }
     private void dragPanel(View v){
         final float[] d=new float[2]; final int[] s=new int[2];
         v.setOnTouchListener((x,e)->{ if(pp==null)return false; switch(e.getActionMasked()){
@@ -118,7 +139,7 @@ public class AutoTapService extends AccessibilityService {
         private final Paint fill=new Paint(1), stroke=new Paint(1), text=new Paint(1);
         private float downX,downY,pinch; private int sx,sy,sw,sh; private boolean pinching=false;
         RegionView(){ super(AutoTapService.this); fill.setColor(0x35FF9800); stroke.setColor(0xFFFF9800); stroke.setStyle(Paint.Style.STROKE); stroke.setStrokeWidth(dp(3)); text.setColor(0xFFFFA726); text.setTextSize(dp(15)); }
-        @Override protected void onDraw(Canvas c){ super.onDraw(c); float i=dp(3); c.drawRect(i,i,getWidth()-i,getHeight()-i,fill); c.drawRect(i,i,getWidth()-i,getHeight()-i,stroke); c.drawText("点击区域 · 拖动 · 双指缩放",dp(10),dp(26),text); }
+        @Override protected void onDraw(Canvas c){ super.onDraw(c); float i=dp(3); c.drawRect(i,i,getWidth()-i,getHeight()-i,fill); c.drawRect(i,i,getWidth()-i,getHeight()-i,stroke); c.drawText(running?"点击区域（运行时触摸透传）":"点击区域 · 拖动 · 双指缩放",dp(10),dp(26),text); }
         @Override public boolean onTouchEvent(MotionEvent e){ if(running)return false; switch(e.getActionMasked()){
             case MotionEvent.ACTION_DOWN:pinching=false;downX=e.getRawX();downY=e.getRawY();sx=rp.x;sy=rp.y;return true;
             case MotionEvent.ACTION_POINTER_DOWN:if(e.getPointerCount()>=2){pinching=true;pinch=dist(e);sw=rp.width;sh=rp.height;}return true;
