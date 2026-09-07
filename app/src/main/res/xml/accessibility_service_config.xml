@@ -5,4 +5,5 @@
     android:notificationTimeout="100"
     android:canPerformGestures="true"
     android:canRetrieveWindowContent="false"
+    android:canRequestFilterKeyEvents="true"
     android:settingsActivity="com.openai.autotapper.MainActivity" />
